@@ -40,14 +40,17 @@ func (d *Dispatcher) Send(report metrics.StampedMetricReport) error {
 	d.recorder.Register(report.Id, endpoints)
 
 	// Next, forward the reports to each subsequent sender.
-	errors := make([]error, len(d.senders))
+	errors := make([]error, 0)
 	wg := sync.WaitGroup{}
 	wg.Add(len(d.senders))
 	for i, ps := range d.senders {
 		go func(i int, s pipeline.Sender) {
 			// If the send generates an error, we assume that the downstream sender will register that
 			// error with the stats recorder.
-			errors[i] = s.Send(report)
+			err := s.Send(report)
+			if err != nil {
+				errors = append(errors, err)
+			}
 			wg.Done()
 		}(i, ps)
 	}
@@ -66,12 +69,15 @@ func (d *Dispatcher) Use() {
 // See pipeline.Component.Release.
 func (d *Dispatcher) Release() error {
 	return d.tracker.Release(func() error {
-		errors := make([]error, len(d.senders))
+		errors := make([]error, 0)
 		wg := sync.WaitGroup{}
 		wg.Add(len(d.senders))
 		for i, s := range d.senders {
 			go func(i int, s pipeline.Sender) {
-				errors[i] = s.Release()
+				err := s.Release()
+				if err != nil {
+					errors = append(errors, err)
+				}
 				wg.Done()
 			}(i, s)
 		}
